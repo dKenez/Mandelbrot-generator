@@ -104,11 +104,14 @@ def main():
         if left_corner is None:
             # calculate left corner
             re = right_corner[0] - abs(2*right_corner[1])*aspect_ratio
-            left_corner = [re, 0]
+            left_corner = [re, -right_corner[1]]
         else:
+            print('here')
             # calculate right corner
             re = left_corner[0] + abs(2*left_corner[1])*aspect_ratio
-            left_corner = [re, 0]
+            right_corner = [re, -left_corner[1]]
+            print(right_corner)
+            print(left_corner)
 
     if args.y:
         print(f'''The following parameters were calculated from the input:

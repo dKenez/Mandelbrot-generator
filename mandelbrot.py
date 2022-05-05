@@ -39,7 +39,7 @@ def mandel(c: complex, pow: float, max_iter: int):
 
 
 def plotMandel(arr: np.ndarray, filename):
-    plt.imsave(filename, arr)
+    plt.imsave(filename, arr, cmap='gray')
 
 def createMandelbrotRender(corner_1: complex, corner_2: complex, h_num: int, v_num: int, pow: float, max_iter: int, filename: str):
     h = create2DLinspace(corner_1, corner_2, h_num, v_num)
@@ -58,14 +58,9 @@ def main():
 
     pow = 2
     i = 100
+    filename = 'test.png'
 
-    h = create2DLinspace(corner_1, corner_2, hres, vres)
-
-    vfunc = np.vectorize(mandel)
-    mandrend = vfunc(h, pow, i).astype("uint8")
-    print(np.average(mandrend))
-
-    plotMandel(mandrend)
+    createMandelbrotRender(corner_1, corner_2, hres, vres, pow, i, filename)
 
 if __name__ == "__main__":
     main()
