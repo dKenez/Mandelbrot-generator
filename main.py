@@ -1,151 +1,133 @@
-from os import path
-from timeit import default_timer as timer
-from numba import jit
-import csv
-import cv2
-import numpy as np
+
+import argparse
+from mandelbrot import createMandelbrotRender
 
 
-@jit
-def calc_z(z, c, p):
-    z = (z ** p) + c
-    return z
+def validateCorners(left_corner: list[int], right_corner: list[int]):
+    left_corner_cplx = complex(*left_corner)
+    right_corner_cplx = complex(*right_corner)
+
+    if not left_corner_cplx.real < right_corner_cplx.real:
+        print("Left corner is not to the left of right corner!")
+        exit()
 
 
-@jit
-def iterate(c, max_iteration, p):
-    iteration = 0
-    z = complex()
-    while abs(z) <= 2 and iteration < max_iteration:
-        z = calc_z(z, c, p)
-        iteration += 1
-    return iteration
+def validateAspectRatio(ar: str):
+    split = ar.split(':')
+    if not len(split) == 2:
+        print("Error when parsing aspect ratio!")
+        exit()
+
+    return int(split[0])/int(split[1])
 
 
-@jit
-def re_map(mx):  # Map
-    mx = abs(mx)
-    maximum = np.amax(mx)
-    mx = mx.astype(np.float64) / maximum
-    mx = 255 * mx
-    mx = mx.astype(np.uint8)
-    return mx
+def validateResolution(hres: int, vres: int):
+    if not hres and not vres:
+        print("Vertical or Horizontal resolution must be given!")
+        exit()
 
 
-@jit
-def to_np(file):
-    reader = csv.reader(file, delimiter=',')
-    d = list(reader)
-    d = np.array(d).astype(float)
-    return d
+def main():
+    parser = argparse.ArgumentParser(
+        description='Render Mandelbrot and save it to file.')
 
+    # arguments
+    parser.add_argument('filename', type=str,
+                        help='Destination file of the render.')
 
-def mandelbrot(res, max_iter, p):
-    # start_0 = timer()
-    file_name = r"csv_1\mandel_"
-    file_iter = 0
-    while path.isfile(file_name + str(file_iter) + ".csv"):
-        file_iter += 1
-    f = open(file_name + str(file_iter) + ".csv", "a")
+    # optional args
+    # aspect ratio
+    parser.add_argument('-a', '--aspect-ratio', type=str, default='16:9',
+                        help='Set aspect ratio of render. This option will be discarded if both --hres and --vres or both -l and -r are set.')
+    parser.add_argument('-m', '--mirror', action='store_true',
+                        help='Computes only half the area of the bounding box, mirrors the result and appends it to the bottom of the array. In this case only -l or -r should be given, the given corner determines the direction relative to the corner. If both -l and -r are supplied -l will be taken into account when determining the bounding box.')
 
-    im0 = 1.5
-    re0 = -(im0/9)*16
-    s_y = im0*2
-    s_x = (im0/9)*32
+    # resolution
+    parser.add_argument('--hres', type=int,
+                        help='Set horizontal resolution of render. --hres takes precedence if both --l and --r are set.')
+    parser.add_argument('--vres', type=int,
+                        help='Set vertical resolution of render. --hres takes precedence if both --l and --r are set.')
 
+    # bounding box corners
+    parser.add_argument('-l', '--left-corner', type=float, nargs=2,
+                        help='Set left corner of bounding box. Make sure -l and -r have different coordinates')
+    parser.add_argument('-r', '--right-corner', type=float, nargs=2,
+                        help='Set right corner of bounding box. Make sure -l and -r have different coordinates.')
 
-    '''running_val = 0
+    # compute options
+    parser.add_argument('-i', '--max-iter', type=int, default=100,
+                        help='Set max iterations for determining convergence.')
+    parser.add_argument('-p', '--power', type=float, default=2,
+                        help='Set the value of the exponent in the formula: Z_(n+1) = Z_(n)^p + C.')
 
-    duration_0 = timer() - start_0
-    start_1 = timer()'''
+    # auto-input yes
+    parser.add_argument('-y', action='store_false',
+                        help='Skip parameter check.')
 
-    for j in range(int(res/2)):
-        for i in range(int((res/s_y)*s_x)):
-            C = complex(re0+((s_x*i)/((res/s_y)*s_x)), im0 - ((s_y / 2) * j/(res/2)))
+    args = parser.parse_args()
 
-            curr_iter = iterate(C, max_iter, p)
+    filename = args.filename
+    mirror = args.mirror
+    aspect_ratio = validateAspectRatio(args.aspect_ratio)
+    hres = args.hres
+    vres = args.vres
+    left_corner = args.left_corner
+    right_corner = args.right_corner
+    max_iter = args.max_iter
+    power = args.power
 
-            if i < int((res/s_y)*s_x - 1):
-                f.write(str(curr_iter)+",".rstrip('\n'))
-            else:
-                f.write(str(curr_iter)+'\n')
-                '''running_val += 1
-                if running_val % 10 == 0:
-                    print(running_val)
-    print("\nfinished op1")'''
-    f.close()
+    validateResolution(vres, hres)
 
-    '''duration_1 = timer()-start_1
-    start_2 = timer()'''
+    if left_corner is None and right_corner is None:
+        print("No corners defined!")
+        exit()
+    elif left_corner and right_corner:
+        validateCorners(left_corner, right_corner)
 
-    lines = []
-    f = open(file_name + str(file_iter) + ".csv", 'r')
-    for line in f:
-        lines.append(line)
-    f.close()
+        aspect_width = abs(left_corner[0] - right_corner[0])
+        aspect_height = abs(left_corner[1] - right_corner[1])
 
-    '''print("finished op2")
+        aspect_ratio = aspect_width / aspect_height
+        hres = hres or int(vres / aspect_ratio)
+        vres = vres or int(hres * aspect_ratio)
+    else:
+        if not mirror:
+            print(
+                "Both corners of the bounding box need to be defined if mirror mode is off!")
+            exit()
 
-    duration_2 = timer() - start_2
-    start_3 = timer()'''
+        hres = hres or int(vres / aspect_ratio)
+        vres = vres or int(hres * aspect_ratio)
 
-    f = open(file_name + str(file_iter) + ".csv", 'a')
-    for line in range(len(lines)):
-        f.write(lines[len(lines)-line-1])
+        aspect_ratio = vres / hres
 
-    f.close()
+        if left_corner is None:
+            # calculate left corner
+            re = right_corner[0] - abs(2*right_corner[1])*aspect_ratio
+            left_corner = [re, 0]
+        else:
+            # calculate right corner
+            re = left_corner[0] + abs(2*left_corner[1])*aspect_ratio
+            left_corner = [re, 0]
 
-    '''print("finished op3")
+    if args.y:
+        print(f'''The following parameters were calculated from the input:
 
-    duration_3 = timer() - start_3
-    start_4 = timer()'''
+        {filename = }
+        {mirror = }
+        aspect_ratio = {aspect_ratio*9:.2f}:9
+        {hres = }px
+        {vres = }px
+        left_corner = {complex(*left_corner)}
+        right_corner = {complex(*right_corner)}
+        {max_iter = }
+        {power = }
+        ''')
 
-    data_path = file_name + str(file_iter) + ".csv"
+        if input('Continue? [y/n]: ').lower() != 'y':
+            exit()
 
-    with open(data_path, 'r') as f:
-        data = to_np(f)
+    createMandelbrotRender(complex(*left_corner), complex(*right_corner), hres, vres, power, max_iter, filename)
 
-    data = re_map(data)
-
-    cv2.imwrite(r"png_1\output_" + str(file_iter) + ".png", data)
-
-    '''print("finished op4\n")
-
-    duration_4 = timer() - start_4
-    duration_all = timer() - start_0
-    
-    print("res:", int(res/s_y)*s_x, "x", res)
-    print("iteration cap:", max_iter)
-    print("file id.:", file_iter)
-    print("init duration:", duration_0)
-    print("op1 duration:", duration_1)
-    print("op2 duration:", duration_2)
-    print("op3 duration:", duration_3)
-    print("op4 duration:", duration_4)
-    print("overall duration:", duration_all)'''
-    return 1
-
-
-print("Input resolution of mandelbrot set:")
-resol = int(input())
-if resol % 2 == 1:
-    resol -= 1
-
-print("Input iteration threshold of mandelbrot set:")
-max_iterat = int(input())
-
-print("Input starting power:")
-power_start = float(input())
-
-print("Input ending power:")
-power_end = float(input())
-
-print("Input increment resolution:")
-power_res = int(input())
-
-for g in range(power_res+1):
-    power = power_start + ((power_end-power_start)/power_res)*g
-    mandelbrot(resol, max_iterat, power)
-    print("png", g, "done")
-
-
+if __name__ == "__main__":
+    main()
